@@ -32,11 +32,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set lowercase repo name
+        run: echo "REPO=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
-          images: ghcr.io/${{ github.repository }}/${{ matrix.image.name }}
+          images: ghcr.io/${{ env.REPO }}/${{ matrix.image.name }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
@@ -77,9 +80,10 @@ jobs:
           IMAGES: ${{ inputs.images }}
         run: |
           TAG="${GITHUB_REF_NAME}-${GITHUB_RUN_ID}"
+          REPO="${GITHUB_REPOSITORY,,}"
           CMD="kustomize edit set image"
           for IMAGE in $(echo "$IMAGES" | jq -r '.[].name'); do
-            CMD="$CMD ghcr.io/${{ github.repository }}/${IMAGE}=ghcr.io/${{ github.repository }}/${IMAGE}:${TAG}"
+            CMD="$CMD ghcr.io/${REPO}/${IMAGE}=ghcr.io/${REPO}/${IMAGE}:${TAG}"
           done
           eval $CMD
 
@@ -134,9 +138,10 @@ jobs:
           IMAGES: ${{ inputs.images }}
         run: |
           VERSION=${GITHUB_REF_NAME#v}
+          REPO="${GITHUB_REPOSITORY,,}"
           CMD="kustomize edit set image"
           for IMAGE in $(echo "$IMAGES" | jq -r '.[].name'); do
-            CMD="$CMD ghcr.io/${{ github.repository }}/${IMAGE}=ghcr.io/${{ github.repository }}/${IMAGE}:${VERSION}"
+            CMD="$CMD ghcr.io/${REPO}/${IMAGE}=ghcr.io/${REPO}/${IMAGE}:${VERSION}"
           done
           eval $CMD
 
