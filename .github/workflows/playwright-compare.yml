@@ -1,0 +1,166 @@
+name: Compare Playwright Results
+
+on:
+  workflow_call:
+    inputs:
+      baseline_artifact:
+        description: 'Artifact name containing baseline results'
+        type: string
+        default: 'e2e-baseline'
+      pr_artifact:
+        description: 'Artifact name containing PR results'
+        type: string
+        default: 'e2e-pr'
+      results_filename:
+        description: 'Name of the JSON results file inside the artifact'
+        type: string
+        default: 'results.json'
+      base_ref_name:
+        description: 'Base branch name shown in the PR comment'
+        type: string
+        default: 'main'
+
+permissions:
+  pull-requests: write
+  actions: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download baseline artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.baseline_artifact }}
+          path: baseline
+
+      - name: Download PR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.pr_artifact }}
+          path: pr
+
+      - name: Compare and comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            function flattenSpecs(suite, path = '') {
+              const results = [];
+              const currentPath = path ? `${path} > ${suite.title}` : suite.title;
+              for (const spec of suite.specs || []) {
+                for (const test of spec.tests || []) {
+                  results.push({
+                    key: `${currentPath} > ${spec.title}::${test.projectName}`,
+                    title: `${currentPath} > ${spec.title}`,
+                    status: test.status,
+                  });
+                }
+              }
+              for (const child of suite.suites || []) {
+                results.push(...flattenSpecs(child, currentPath));
+              }
+              return results;
+            }
+
+            function loadResults(filePath) {
+              try {
+                return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+              } catch (e) {
+                return null;
+              }
+            }
+
+            const baselineData = loadResults(`baseline/${{ inputs.results_filename }}`);
+            const prData = loadResults(`pr/${{ inputs.results_filename }}`);
+
+            const MARKER = '<!-- playwright-compare -->';
+            let body = `${MARKER}\n## Playwright E2E Comparison\n\n`;
+
+            if (!baselineData || !prData) {
+              const missing = [];
+              if (!baselineData) missing.push('`${{ inputs.baseline_artifact }}`');
+              if (!prData) missing.push('`${{ inputs.pr_artifact }}`');
+              body += `⚠️ Could not load results for: ${missing.join(', ')}. The E2E job may have failed before producing output.\n`;
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+              core.setFailed('E2E results could not be loaded.');
+              return;
+            }
+
+            const baselineSpecs = baselineData.suites.flatMap(s => flattenSpecs(s));
+            const prSpecs = prData.suites.flatMap(s => flattenSpecs(s));
+
+            const baselineMap = new Map(baselineSpecs.map(s => [s.key, s.status]));
+            const prMap = new Map(prSpecs.map(s => [s.key, s.status]));
+
+            const regressions = [];
+            const fixed = [];
+
+            for (const [key, baseStatus] of baselineMap) {
+              const prStatus = prMap.get(key);
+              if (baseStatus === 'expected' && prStatus === 'unexpected') regressions.push(key);
+              if (baseStatus === 'unexpected' && prStatus === 'expected') fixed.push(key);
+            }
+
+            const b = baselineData.stats;
+            const p = prData.stats;
+            const hasRegression = regressions.length > 0;
+            const icon = hasRegression ? '❌' : '✅';
+
+            body += `${icon} **${hasRegression ? `${regressions.length} regression(s) detected` : 'No regression detected'}**\n\n`;
+            body += `| | Baseline (\`${{ inputs.base_ref_name }}\`) | This PR |\n`;
+            body += `|---|---|---|\n`;
+            body += `| ✅ Passed | ${b.expected} | ${p.expected} |\n`;
+            body += `| ❌ Failed | ${b.unexpected} | ${p.unexpected} |\n`;
+            body += `| ⏭ Skipped | ${b.skipped} | ${p.skipped} |\n`;
+
+            if (regressions.length > 0) {
+              body += `\n### Regressions\n`;
+              for (const key of regressions) {
+                const [title] = key.split('::');
+                body += `- \`${title}\`\n`;
+              }
+            }
+
+            if (fixed.length > 0) {
+              body += `\n### 🎉 Previously failing tests now passing\n`;
+              for (const key of fixed) {
+                const [title] = key.split('::');
+                body += `- \`${title}\`\n`;
+              }
+            }
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body.includes(MARKER));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+            if (hasRegression) {
+              core.setFailed(`${regressions.length} E2E regression(s) detected.`);
+            }
