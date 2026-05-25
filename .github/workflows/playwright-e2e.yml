@@ -1,0 +1,65 @@
+name: Playwright E2E
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: 'Node.js version to use'
+        type: string
+        default: '24'
+      ref:
+        description: 'Git ref to checkout (branch name or commit SHA)'
+        type: string
+        required: true
+      artifact_name:
+        description: 'Name for the uploaded artifact (e.g. e2e-baseline or e2e-pr)'
+        type: string
+        required: true
+      e2e_command:
+        description: 'Command to run the E2E test suite'
+        type: string
+        default: 'npm run e2e:web'
+      results_path:
+        description: 'Path to the Playwright JSON results file (relative to workspace root)'
+        type: string
+        default: 'apps/web-e2e/results.json'
+      report_path:
+        description: 'Path to the Playwright HTML report directory'
+        type: string
+        default: 'dist/.playwright/apps/web-e2e/playwright-report'
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Run E2E tests
+        run: ${{ inputs.e2e_command }}
+        env:
+          CI: true
+        continue-on-error: true
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: |
+            ${{ inputs.results_path }}
+            ${{ inputs.report_path }}
+          retention-days: 7
+          if-no-files-found: warn
