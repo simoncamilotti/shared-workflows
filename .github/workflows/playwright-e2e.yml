@@ -52,6 +52,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Ensure native unzip is installed
+        run: sudo apt-get update && sudo apt-get install -y unzip
+
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@v4
@@ -60,15 +63,24 @@ jobs:
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
           restore-keys: playwright-chromium-${{ runner.os }}-
 
-      - name: Install Playwright browsers
+      - name: Install Playwright Chromium Browser
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install chromium --with-deps
+        run: npx playwright install chromium
         timeout-minutes: 5
 
-      - name: Install Playwright system deps
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
+      - name: Install Playwright system dependencies
         run: npx playwright install-deps chromium
         timeout-minutes: 5
+
+      # - name: Install Playwright browsers
+      #   if: steps.playwright-cache.outputs.cache-hit != 'true'
+      #   run: npx playwright install chromium --with-deps
+      #   timeout-minutes: 5
+
+      # - name: Install Playwright system deps
+      #   if: steps.playwright-cache.outputs.cache-hit == 'true'
+      #   run: npx playwright install-deps chromium
+      #   timeout-minutes: 5
 
       - name: Run E2E tests
         run: ${{ inputs.e2e_command }}
