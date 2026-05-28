@@ -35,6 +35,9 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: "--max-http-header-size=16384"
+      PW_CLI_USE_NATIVE_UNZIP: "1"
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
