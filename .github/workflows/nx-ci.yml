@@ -19,6 +19,10 @@ on:
         description: 'Content to write to .env file'
         type: string
         default: ''
+      runner:
+        description: 'Runner label (ubuntu-latest or a self-hosted scale set, e.g. equistabl-runners)'
+        type: string
+        default: 'ubuntu-latest'
 
 permissions:
   actions: read
@@ -26,7 +30,7 @@ permissions:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
