@@ -1,0 +1,78 @@
+name: Playwright E2E
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: 'Node.js version to use'
+        type: string
+        default: '24'
+      ref:
+        description: 'Git ref to checkout (branch name or commit SHA)'
+        type: string
+        required: true
+      artifact_name:
+        description: 'Name for the uploaded artifact (e.g. e2e-baseline or e2e-pr)'
+        type: string
+        required: true
+      e2e_command:
+        description: 'Command to run the E2E test suite'
+        type: string
+        default: 'npm run e2e:web'
+      results_path:
+        description: 'Path to the Playwright JSON results file (relative to workspace root)'
+        type: string
+        default: 'apps/web-e2e/results.json'
+      report_path:
+        description: 'Path to the Playwright HTML report directory'
+        type: string
+        default: 'dist/.playwright/apps/web-e2e/playwright-report'
+      playwright_image:
+        description: 'Playwright Docker image — MUST match the @playwright/test version in package-lock.json'
+        type: string
+        default: 'mcr.microsoft.com/playwright:v1.58.2-noble'
+    secrets:
+      NX_CLOUD_ACCESS_TOKEN:
+        description: 'Nx Cloud access token for remote caching'
+        required: false
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    # Run inside the official Playwright image: browsers + OS deps are pre-baked,
+    # so there is no `playwright install` step left to hang/timeout on the runner.
+    container:
+      image: ${{ inputs.playwright_image }}
+    env:
+      NODE_OPTIONS: '--max-http-header-size=16384'
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run E2E tests
+        run: ${{ inputs.e2e_command }}
+        env:
+          CI: true
+          NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: |
+            ${{ inputs.results_path }}
+            ${{ inputs.report_path }}
+          retention-days: 7
+          if-no-files-found: warn

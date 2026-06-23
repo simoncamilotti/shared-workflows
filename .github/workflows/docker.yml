@@ -7,11 +7,23 @@ on:
         description: 'JSON array of images to build, e.g. [{"name":"api","dockerfile":"apps/api/Dockerfile"}]'
         type: string
         required: true
+      runner:
+        description: 'Runner label for the build job (ubuntu-latest or a self-hosted scale set)'
+        type: string
+        default: 'ubuntu-latest'
+      remote_buildkit:
+        description: 'Build via a remote in-cluster BuildKit (buildx driver=remote, mTLS). Requires the runner pod to mount the client cert at /certs/buildkit.'
+        type: boolean
+        default: false
+      buildkit_endpoint:
+        description: 'Remote BuildKit endpoint, used when remote_buildkit=true'
+        type: string
+        default: 'tcp://buildkitd.buildkit.svc.cluster.local:1234'
 
 jobs:
   build:
     if: vars.DOCKER_MANUAL_ONLY != 'true' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     permissions:
       contents: read
       packages: write
@@ -22,7 +34,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      # Remote driver : buildx pilote le BuildKit in-cluster en mTLS (certs montés
+      # dans le pod runner par le scale set ARC). Aucun daemon Docker local requis.
+      - name: Set up Docker Buildx (remote in-cluster BuildKit)
+        if: inputs.remote_buildkit
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          driver: remote
+          endpoint: ${{ inputs.buildkit_endpoint }}
+          driver-opts: |
+            cacert=/certs/buildkit/ca.crt
+            cert=/certs/buildkit/tls.crt
+            key=/certs/buildkit/tls.key
+
       - name: Set up Docker Buildx
+        if: ${{ !inputs.remote_buildkit }}
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to GitHub Container Registry
@@ -56,8 +82,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # BuildKit distant -> cache registre (ghcr) ; sinon cache GHA classique.
+          cache-from: ${{ inputs.remote_buildkit && format('type=registry,ref=ghcr.io/{0}/{1}:buildcache', env.REPO, matrix.image.name) || 'type=gha' }}
+          cache-to: ${{ inputs.remote_buildkit && format('type=registry,ref=ghcr.io/{0}/{1}:buildcache,mode=max', env.REPO, matrix.image.name) || 'type=gha,mode=max' }}
 
   deploy-dev:
     runs-on: ubuntu-latest
