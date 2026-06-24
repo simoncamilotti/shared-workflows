@@ -87,7 +87,7 @@ jobs:
           cache-to: ${{ inputs.remote_buildkit && format('type=registry,ref=ghcr.io/{0}/{1}:buildcache,mode=max', env.REPO, matrix.image.name) || 'type=gha,mode=max' }}
 
   deploy-dev:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     if: github.ref == 'refs/heads/main'
     needs: build
     steps:
@@ -145,7 +145,7 @@ jobs:
             }
 
   deploy-prod:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     if: github.event_name == 'release'
     needs: build
     steps:
