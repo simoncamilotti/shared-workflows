@@ -82,9 +82,12 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # BuildKit distant -> cache registre (ghcr) ; sinon cache GHA classique.
-          cache-from: ${{ inputs.remote_buildkit && format('type=registry,ref=ghcr.io/{0}/{1}:buildcache', env.REPO, matrix.image.name) || 'type=gha' }}
-          cache-to: ${{ inputs.remote_buildkit && format('type=registry,ref=ghcr.io/{0}/{1}:buildcache,mode=max', env.REPO, matrix.image.name) || 'type=gha,mode=max' }}
+          # BuildKit distant : on s'appuie sur le cache LOCAL de buildkitd
+          # (persistant sur PVC) -> pas de cache registre. L'export mode=max vers
+          # ghcr via WAN coûtait ~18 min/build, bien plus que le bénéfice.
+          # Sinon (ubuntu-latest) : cache GHA classique.
+          cache-from: ${{ inputs.remote_buildkit && '' || 'type=gha' }}
+          cache-to: ${{ inputs.remote_buildkit && '' || 'type=gha,mode=max' }}
 
   deploy-dev:
     runs-on: ${{ inputs.runner }}
