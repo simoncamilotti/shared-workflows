@@ -28,9 +28,13 @@ on:
         type: string
         default: 'dist/.playwright/apps/web-e2e/playwright-report'
       playwright_image:
-        description: 'Playwright Docker image — MUST match the @playwright/test version in package-lock.json'
+        description: 'Playwright Docker image (fournit les deps OS + un cache navigateur). Le binaire navigateur est resynchronisé sur la version @playwright/test du code checkouté, donc ce tag nest quune base.'
         type: string
         default: 'mcr.microsoft.com/playwright:v1.58.2-noble'
+      playwright_browsers:
+        description: 'Navigateurs à (re)synchroniser avec la version Playwright du code (ex: "chromium", "chromium webkit", ou "" pour tous).'
+        type: string
+        default: 'chromium'
     secrets:
       NX_CLOUD_ACCESS_TOKEN:
         description: 'Nx Cloud access token for remote caching'
@@ -58,6 +62,15 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # L'image fige les navigateurs pour UNE version de Playwright. Dès que le
+      # code checkouté pioche une autre version (typiquement une PR renovate qui
+      # bump @playwright/test), browserType.launch échoue ("Executable doesn't
+      # exist"). On réinstalle donc le binaire correspondant à la version réelle
+      # de node_modules : no-op quand les versions coïncident, téléchargement
+      # rapide sinon. Les deps OS restent fournies par l'image (pas de --with-deps).
+      - name: Sync browsers with the checked-out Playwright version
+        run: npx playwright install ${{ inputs.playwright_browsers }}
 
       - name: Run E2E tests
         run: ${{ inputs.e2e_command }}
