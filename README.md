@@ -95,7 +95,7 @@ Sur le repo GitHub de votre projet, ajouter :
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `node_version` | string | `"20"` | Version de Node.js |
+| `node_version` | string | `"24"` | Version de Node.js (LTS active) |
 | `nx_targets` | string | `"lint test build"` | Targets Nx a executer (separes par des espaces) |
 | `prisma` | boolean | `false` | Lancer `npx prisma generate` avant les targets |
 | `env_file` | string | `""` | Contenu a ecrire dans `.env` pour les tests CI |
