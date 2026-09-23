@@ -19,6 +19,10 @@ on:
         description: 'Remote BuildKit endpoint, used when remote_buildkit=true'
         type: string
         default: 'tcp://buildkitd.buildkit.svc.cluster.local:1234'
+      gitops_repo:
+        description: 'GitOps repository updated by the deploy jobs (owner/name)'
+        type: string
+        default: 'simoncamilotti/infra'
 
 jobs:
   build:
@@ -97,7 +101,7 @@ jobs:
       - name: Checkout GitOps repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ vars.GITOPS_REPO }}
+          repository: ${{ inputs.gitops_repo }}
           token: ${{ secrets.GITOPS_PAT }}
           path: gitops
 
@@ -155,7 +159,7 @@ jobs:
       - name: Checkout GitOps repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ vars.GITOPS_REPO }}
+          repository: ${{ inputs.gitops_repo }}
           token: ${{ secrets.GITOPS_PAT }}
           path: gitops
 

@@ -86,7 +86,6 @@ Sur le repo GitHub de votre projet, ajouter :
 
 | Variable | Description | Requis |
 |----------|-------------|--------|
-| `GITOPS_REPO` | Repo GitOps (ex: `mon-org/infra`) | Oui (deploy) |
 | `DOCKER_MANUAL_ONLY` | Si `true`, les builds Docker ne se lancent qu'en workflow_dispatch | Non |
 
 ## Reference des inputs
@@ -97,7 +96,7 @@ Sur le repo GitHub de votre projet, ajouter :
 |-------|------|---------|-------------|
 | `node_version` | string | `"24"` | Version de Node.js (LTS active) |
 | `nx_targets` | string | `"lint test build"` | Targets Nx a executer (separes par des espaces) |
-| `prisma` | boolean | `false` | Lancer `npx prisma generate` avant les targets |
+| `prisma` | boolean | `false` | Lancer `prisma generate` avant les targets |
 | `env_file` | string | `""` | Contenu a ecrire dans `.env` pour les tests CI |
 
 ### `docker.yml`
@@ -105,6 +104,7 @@ Sur le repo GitHub de votre projet, ajouter :
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `images` | string | *requis* | JSON array des images Docker a construire |
+| `gitops_repo` | string | `"simoncamilotti/infra"` | Repo GitOps mis a jour par les jobs de deploiement |
 
 Format de `images` :
 
@@ -128,11 +128,15 @@ Format de `images` :
 
 1. Checkout du code (avec historique complet pour Nx)
 2. Setup Node.js (version depuis les inputs)
-3. `npm ci`
-4. Creation du `.env` (si `env_file` fourni)
-5. `npx prisma generate` (si `prisma: true`)
-6. `npx nx run-many -t <nx_targets>`
-7. `npx nx fix-ci` (self-healing, tourne meme si les targets echouent)
+3. Detection du package manager par le lockfile : `pnpm-lock.yaml` -> pnpm, `package-lock.json` -> npm
+4. Setup pnpm si besoin (version lue dans le champ `packageManager` du `package.json`)
+5. `npm ci` ou `pnpm install --frozen-lockfile`
+6. Creation du `.env` (si `env_file` fourni)
+7. `prisma generate` (si `prisma: true`)
+8. `nx run-many -t <nx_targets>`
+9. `nx fix-ci` (self-healing, tourne meme si les targets echouent)
+
+Les commandes passent par `npx` ou `pnpm exec` selon le package manager detecte.
 
 ### `docker.yml` — Build & Deploy
 
@@ -197,5 +201,5 @@ on:
 ## Prerequis
 
 - Ce repo doit etre **public** ou dans la meme organisation que les repos appelants (contrainte GitHub pour les reusable workflows).
-- Les projets appelants doivent utiliser **npm** comme package manager.
+- Les projets appelants utilisent **npm** ou **pnpm**, avec leur lockfile a la racine. Avec pnpm, le `package.json` racine declare `packageManager` (ex: `"pnpm@10.x.y"`).
 - Les Dockerfiles doivent exister aux chemins specifies dans le input `images`.
