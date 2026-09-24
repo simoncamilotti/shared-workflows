@@ -98,6 +98,10 @@ Sur le repo GitHub de votre projet, ajouter :
 | `nx_targets` | string | `"lint test build"` | Targets Nx a executer (separes par des espaces) |
 | `prisma` | boolean | `false` | Lancer `prisma generate` avant les targets |
 | `env_file` | string | `""` | Contenu a ecrire dans `.env` pour les tests CI |
+| `runner` | string | `"ubuntu-latest"` | Label du runner |
+| `affected` | boolean | `false` | Sur les pull requests, seulement les projets affectes (`nx affected`) ; tout le monorepo sinon |
+| `knip` | boolean | `false` | Lancer `knip` (fichiers, dependances et exports inutilises) apres les targets |
+| `gitleaks` | boolean | `false` | Chercher des secrets dans l'historique git avec gitleaks (binaire epingle et verifie) |
 
 ### `docker.yml`
 
@@ -105,6 +109,21 @@ Sur le repo GitHub de votre projet, ajouter :
 |-------|------|---------|-------------|
 | `images` | string | *requis* | JSON array des images Docker a construire |
 | `gitops_repo` | string | `"simoncamilotti/infra"` | Repo GitOps mis a jour par les jobs de deploiement |
+| `push` | boolean | `true` | Pousser les images sur GHCR ; `false` verifie seulement qu'elles se construisent |
+| `deploy` | boolean | `true` | Mettre a jour les overlays GitOps (dev sur main, prod sur une release). Necessite `push` |
+
+Le job appelant doit accorder `packages: write` quand `push` vaut `true`.
+
+### `nx-e2e.yml`
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `node_version` | string | `"24"` | Version de Node.js |
+| `runner` | string | `"ubuntu-latest"` | Label du runner |
+| `playwright_image` | string | `"mcr.microsoft.com/playwright:v1.63.0-noble"` | Image du job : dependances systeme et navigateurs. A garder sur la version de `@playwright/test` |
+| `browsers_command` | string | `""` | Resynchronise les navigateurs avec la version Playwright du code (ex: `pnpm --filter @repo/web-e2e exec playwright install chromium`) |
+| `affected` | boolean | `false` | Sur les pull requests, seulement les projets affectes |
+| `services_host` | string | `""` | Hote des services : vide sur les runners GitHub (nom du service), `localhost` sur ARC en `containerMode: kubernetes` |
 
 Format de `images` :
 
@@ -137,6 +156,17 @@ Format de `images` :
 9. `nx fix-ci` (self-healing, tourne meme si les targets echouent)
 
 Les commandes passent par `npx` ou `pnpm exec` selon le package manager detecte.
+
+### `nx-e2e.yml` — E2E full-stack
+
+Lance les targets Nx `e2e` dans l'image Playwright, avec deux services :
+
+| Service | Variable fournie aux tests |
+|---------|---------------------------|
+| PostgreSQL 18 | `E2E_DATABASE_URL` |
+| Mailpit | `E2E_SMTP_URL`, `E2E_MAILPIT_URL` |
+
+Les rapports Playwright (`**/test-output/results`, `**/playwright-report`) sont publies en artefact en cas d'echec.
 
 ### `docker.yml` — Build & Deploy
 

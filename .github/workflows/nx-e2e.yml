@@ -1,0 +1,138 @@
+name: Nx E2E
+
+# Full-stack e2e: the Nx `e2e` targets run in the Playwright image, next to a PostgreSQL
+# database and a Mailpit SMTP server. The projects read them through E2E_DATABASE_URL,
+# E2E_SMTP_URL and E2E_MAILPIT_URL.
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: 'Node.js version'
+        type: string
+        default: '24'
+      runner:
+        description: 'Runner label (ubuntu-latest or a self-hosted scale set)'
+        type: string
+        default: 'ubuntu-latest'
+      playwright_image:
+        description: 'Playwright image: OS dependencies and browsers. Keep it on the @playwright/test version of the project.'
+        type: string
+        default: 'mcr.microsoft.com/playwright:v1.63.0-noble'
+      browsers_command:
+        description: 'Syncs the browsers with the checked-out Playwright version (no-op when the image matches), e.g. "pnpm --filter @repo/web-e2e exec playwright install chromium". Empty to skip.'
+        type: string
+        default: ''
+      affected:
+        description: 'On pull requests, run the e2e targets of the affected projects only'
+        type: boolean
+        default: false
+      services_host:
+        description: 'Host of the service containers: empty on GitHub-hosted runners (the service names are used), "localhost" on ARC runners in kubernetes container mode'
+        type: string
+        default: ''
+    secrets:
+      NX_CLOUD_ACCESS_TOKEN:
+        required: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ${{ inputs.runner }}
+    container:
+      image: ${{ inputs.playwright_image }}
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_USER: e2e
+          POSTGRES_PASSWORD: e2e
+          POSTGRES_DB: e2e
+        options: >-
+          --health-cmd "pg_isready -U e2e -d e2e"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+      mailpit:
+        image: axllent/mailpit:v1.31@sha256:74d609a42ec279aa63c6b4622a6fa9b5408d1ad5b1d76a1c4be40a265ce0863d
+    env:
+      CI: 'true'
+      E2E_DATABASE_URL: postgresql://e2e:e2e@${{ inputs.services_host || 'postgres' }}:5432/e2e
+      E2E_SMTP_URL: smtp://${{ inputs.services_host || 'mailpit' }}:1025
+      E2E_MAILPIT_URL: http://${{ inputs.services_host || 'mailpit' }}:8025
+      NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+    steps:
+      # `nx affected` needs the git history: without git, checkout falls back to an archive.
+      - name: Install git
+        run: command -v git >/dev/null || (apt-get update && apt-get install -y --no-install-recommends git)
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          filter: tree:0
+          fetch-depth: 0
+
+      # The lockfile picks the package manager, as in nx-ci.yml.
+      - name: Detect package manager
+        id: pm
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            {
+              echo "name=pnpm"
+              echo "install=pnpm install --frozen-lockfile"
+              echo "exec=pnpm exec"
+            } >> "$GITHUB_OUTPUT"
+          elif [ -f package-lock.json ]; then
+            {
+              echo "name=npm"
+              echo "install=npm ci"
+              echo "exec=npx"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::No pnpm-lock.yaml or package-lock.json at the repository root"
+            exit 1
+          fi
+
+      - name: Setup pnpm
+        if: steps.pm.outputs.name == 'pnpm'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ steps.pm.outputs.name }}
+
+      - run: ${{ steps.pm.outputs.install }}
+
+      - name: Sync browsers with the checked-out Playwright version
+        if: inputs.browsers_command != ''
+        run: ${{ inputs.browsers_command }}
+
+      - name: Derive the affected range
+        if: inputs.affected && github.event_name == 'pull_request'
+        uses: nrwl/nx-set-shas@afb73a62d26e41464e9254689e1fd6122ee683c1 # v5.0.1
+
+      - name: Run e2e targets
+        run: |
+          if [ "$AFFECTED" = "true" ] && [ "$EVENT" = "pull_request" ]; then
+            ${{ steps.pm.outputs.exec }} nx affected -t e2e
+          else
+            ${{ steps.pm.outputs.exec }} nx run-many -t e2e
+          fi
+        env:
+          AFFECTED: ${{ inputs.affected }}
+          EVENT: ${{ github.event_name }}
+
+      - name: Upload reports
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-reports
+          path: |
+            **/test-output/results
+            **/playwright-report
+          retention-days: 7
+          if-no-files-found: ignore

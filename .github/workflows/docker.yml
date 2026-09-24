@@ -23,6 +23,14 @@ on:
         description: 'GitOps repository updated by the deploy jobs (owner/name)'
         type: string
         default: 'simoncamilotti/infra'
+      push:
+        description: 'Push the images to GHCR. false only checks that they build.'
+        type: boolean
+        default: true
+      deploy:
+        description: 'Update the GitOps overlays (dev on main, prod on a release). Requires push.'
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -56,6 +64,7 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GitHub Container Registry
+        if: inputs.push
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -83,7 +92,7 @@ jobs:
         with:
           context: .
           file: ${{ matrix.image.dockerfile }}
-          push: true
+          push: ${{ inputs.push }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # BuildKit distant : on s'appuie sur le cache LOCAL de buildkitd
@@ -95,7 +104,7 @@ jobs:
 
   deploy-dev:
     runs-on: ${{ inputs.runner }}
-    if: github.ref == 'refs/heads/main'
+    if: inputs.push && inputs.deploy && github.ref == 'refs/heads/main'
     needs: build
     steps:
       - name: Checkout GitOps repo
@@ -153,7 +162,7 @@ jobs:
 
   deploy-prod:
     runs-on: ${{ inputs.runner }}
-    if: github.event_name == 'release'
+    if: inputs.push && inputs.deploy && github.event_name == 'release'
     needs: build
     steps:
       - name: Checkout GitOps repo
