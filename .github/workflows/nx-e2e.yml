@@ -75,6 +75,11 @@ jobs:
           filter: tree:0
           fetch-depth: 0
 
+      # The container user does not own the workspace: without this, git refuses to read it
+      # ("dubious ownership") and `nx affected` fails.
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       # The lockfile picks the package manager, as in nx-ci.yml.
       - name: Detect package manager
         id: pm
